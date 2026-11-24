@@ -26,4 +26,22 @@ fi
 # Wait for MySQL, run migrations under a lock, create the admin. Any failure stops the service.
 node railway-prepare.mjs
 
-exec node bootstrap.js
+run() {
+  # Run Node as a child of this shell so signals reach it, and make any unexpected
+  # stop exit non-zero: Railway's ON_FAILURE restart policy only restarts failed exits.
+  term=0
+  "$@" &
+  pid=$!
+  trap 'term=1; kill -TERM "$pid" 2>/dev/null' TERM INT
+  rc=0
+  wait "$pid" || rc=$?
+  while kill -0 "$pid" 2>/dev/null; do rc=0; wait "$pid" || rc=$?; done
+  if [ "$term" = 0 ] && [ "$rc" = 0 ]; then
+    echo "[railway] $1 exited unexpectedly with status 0; exiting 1 so Railway restarts the service." >&2
+    rc=1
+  fi
+  echo "[railway] Process exited with status $rc." >&2
+  exit "$rc"
+}
+
+run node bootstrap.js
